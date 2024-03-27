@@ -273,27 +273,79 @@ function connect() {
 function handleNotifications(event) {
     log('> notification');
     let value = event.target.value;
-    // Convert raw data bytes to character values and use these to 
-    // construct a string.
-    let str = "";
+
+    // Convert raw data bytes to hexadecimal values and construct a string.
+    let result = "";
     for (let i = 0; i < value.byteLength; i++) {
         var number = value.getUint8(i);
-        str += number;
+        // Convert the number to hexadecimal and pad with leading zero if needed
+        result += ("0" + number.toString(16)).slice(-2);
     }
+
+    /*pega 8 caracteres da tensao*/
+    let hexString = result.substring(0, 9);
+    let byteArray = Array.from({length: hexString.length / 2}, (_, i) => parseInt(hexString.substring(i * 2, i * 2 + 2), 16));
+    let arr = new Uint8Array(byteArray)
+    let dataView = new DataView(arr.buffer);
+    let tensaoPrincipal = dataView.getFloat32(0,true);
+    console.log("Tensão = " + tensaoPrincipal);
+
     
-    str += '\n';
-    inject_text(str);
+    /*pega 8 caracteres da corrente*/
+    hexString = result.substring(8,17)
+    byteArray = Array.from({length: hexString.length / 2}, (_, i) => parseInt(hexString.substring(i * 2, i * 2 + 2), 16));
+    arr = new Uint8Array(byteArray)
+    dataView = new DataView(arr.buffer);
+    let current = dataView.getFloat32(0,true);
+    console.log("Corrente = " + current);
 
-    // const raw = atob(event.target.value);
-    // let result = '';
-    // for (let i = 0; i < raw.length; i++) {
-    //   const hex = raw.charCodeAt(i).toString(16);
-    //   result += (hex.length === 2 ? hex : '0' + hex);
-    // }
-    // result += '\n';
-    // inject_text(result);
+    /** Consumo médio */
+    hexString = result.substring(16, 25)
+    byteArray = Array.from({length: hexString.length / 2}, (_, i) => parseInt(hexString.substring(i * 2, i * 2 + 2), 16));
+    arr = new Uint8Array(byteArray)
+    dataView = new DataView(arr.buffer);
+    let consume = dataView.getFloat32(0,true)
+    console.log("Consume = " + consume);
+
+
+    /** Temperatura Interna */
+    hexString = result.substring(24, 33)
+    byteArray = Array.from({length: hexString.length / 2}, (_, i) => parseInt(hexString.substring(i * 2, i * 2 + 2), 16));
+    arr = new Uint8Array(byteArray)
+    dataView = new DataView(arr.buffer);
+    let temperature = dataView.getFloat32(0,true)
+    console.log("Temperature = " + temperature);
+    
+
+    hexString = result.substring(32, 41)
+    byteArray = Array.from({length: hexString.length / 2}, (_, i) => parseInt(hexString.substring(i * 2, i * 2 + 2), 16));
+    arr = new Uint8Array(byteArray)
+    dataView = new DataView(arr.buffer);
+    let soh = dataView.getFloat32(0,true);
+    console.log("SoH = " + soh);
+  
+
+    hexString = result.substring(40, 49)
+    byteArray = Array.from({length: hexString.length / 2}, (_, i) => parseInt(hexString.substring(i * 2, i * 2 + 2), 16));
+    arr = new Uint8Array(byteArray)
+    dataView = new DataView(arr.buffer);
+    let soc = dataView.getFloat32(0,true);
+    console.log("SoC = " + soc);
+
+    //id empilhadeira tira 2 carac da string 48 e 49
+
+    hexString = result.substring(50,52)
+    let eletrolyte = parseInt(hexString, 16)
+    console.log("Eletrolito = " + eletrolyte);
+
+    hexString = result.substring(52,54)
+    let batState = parseInt(hexString, 16)
+    console.log("Estado = " + batState);
+
+    result += '\n';
+    inject_text(result);
+
 }
-
 
 function disconnect() {
     if (!bleDevice) {
