@@ -1,0 +1,192 @@
+<!DOCTYPE HTML>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard de Dados</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f9;
+            color: #333;
+        }
+        .container {
+            max-width: 900px;
+            margin: 20px auto;
+            padding: 20px;
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            text-align: center;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            padding: 12px;
+            text-align: center;
+            border: 1px solid #ddd;
+        }
+        th {
+            background-color: #007BFF;
+            color: #fff;
+        }
+        button {
+            display: block;
+            margin: 20px auto;
+            padding: 10px 20px;
+            font-size: 16px;
+            color: #fff;
+            background-color: #007BFF;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        #chart-container {
+            width: 100%;
+            height: 400px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Dashboard de Dados</h1>
+        <div id="chart-container">
+            <canvas id="chart"></canvas>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Tempo</th>
+                    <th>Tensão (V)</th>
+                    <th>Corrente (A)</th>
+                    <th>Temperatura (°C)</th>
+                </tr>
+            </thead>
+            <tbody id="data-table">
+            </tbody>
+        </table>
+        <button id="save-csv">Salvar em CSV</button>
+    </div>
+
+    <!-- Importando Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        // Variáveis globais
+        const dataTable = document.getElementById("data-table");
+        const csvButton = document.getElementById("save-csv");
+        const chartCtx = document.getElementById("chart").getContext("2d");
+        let dataPoints = [];
+        let chart;
+
+        // Função para adicionar uma nova linha na tabela e atualizar o gráfico
+        function addData(tempo, tensao, corrente, temperatura) {
+            // Adicionar dados na tabela
+            const row = document.createElement("tr");
+            row.innerHTML = `
+                <td>${tempo}</td>
+                <td>${tensao.toFixed(2)}</td>
+                <td>${corrente.toFixed(2)}</td>
+                <td>${temperatura.toFixed(2)}</td>
+            `;
+            dataTable.appendChild(row);
+
+            // Adicionar dados no array para o gráfico
+            dataPoints.push({ tempo, tensao, corrente, temperatura });
+            if (dataPoints.length > 10) dataPoints.shift(); // Mantém apenas os últimos 10 dados
+
+            // Atualizar o gráfico
+            updateChart();
+        }
+
+        // Configuração inicial do gráfico
+        function createChart() {
+            chart = new Chart(chartCtx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            label: 'Tensão (V)',
+                            data: [],
+                            borderColor: 'rgba(75, 192, 192, 1)',
+                            backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                            borderWidth: 2,
+                            fill: true,
+                        },
+                        {
+                            label: 'Corrente (A)',
+                            data: [],
+                            borderColor: 'rgba(255, 99, 132, 1)',
+                            backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                            borderWidth: 2,
+                            fill: true,
+                        },
+                        {
+                            label: 'Temperatura (°C)',
+                            data: [],
+                            borderColor: 'rgba(54, 162, 235, 1)',
+                            backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                            borderWidth: 2,
+                            fill: true,
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        x: { title: { display: true, text: 'Tempo' } },
+                        y: { title: { display: true, text: 'Valores' } }
+                    }
+                }
+            });
+        }
+
+        // Atualizar dados do gráfico
+        function updateChart() {
+            chart.data.labels = dataPoints.map((_, index) => `T${index + 1}`);
+            chart.data.datasets[0].data = dataPoints.map(dp => dp.tensao);
+            chart.data.datasets[1].data = dataPoints.map(dp => dp.corrente);
+            chart.data.datasets[2].data = dataPoints.map(dp => dp.temperatura);
+            chart.update();
+        }
+
+        // Gerar CSV a partir dos dados
+        function saveCSV() {
+            const rows = [
+                ["Tempo", "Tensão (V)", "Corrente (A)", "Temperatura (°C)"],
+                ...dataPoints.map(dp => [dp.tempo, dp.tensao, dp.corrente, dp.temperatura])
+            ];
+            const csvContent = rows.map(e => e.join(",")).join("\n");
+            const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "dados.csv";
+            a.click();
+        }
+
+        // Eventos
+        csvButton.addEventListener("click", saveCSV);
+
+        // Simulação de dados recebidos (substitua com os dados reais)
+        createChart();
+        setInterval(() => {
+            const tempo = new Date().toLocaleTimeString();
+            const tensao = (Math.random() * 20) + 10; // Exemplo: valores entre 10V e 30V
+            const corrente = (Math.random() * 5);    // Exemplo: valores entre 0A e 5A
+            const temperatura = (Math.random() * 40) + 20; // Exemplo: valores entre 20°C e 60°C
+            addData(tempo, tensao, corrente, temperatura);
+        }, 2000); // Atualiza a cada 2 segundos
+    </script>
+</body>
+</html>

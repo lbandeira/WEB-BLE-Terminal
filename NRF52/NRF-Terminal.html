@@ -1,0 +1,385 @@
+<!DOCTYPE HTML>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+    <meta charset="utf-8" />
+    <title>NRF52 WebBluetooth REPL</title>
+    <meta name="Description" content=""/>
+    <link rel="shortcut icon" href=""/>
+    <!--[if IE]>
+    <script src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link href="jquery.terminal-src.css" rel="stylesheet"/>
+    <style>
+body {
+    background-color: #CCCCCC;
+}
+#buttons {
+    position: absolute;
+    top: 30px;
+    left: 65px;
+    z-index: 100;
+    padding: 8px 0 0;
+    box-sizing: border-box;
+}
+#term {
+    position: absolute;
+    top: 80px;
+    left: 65px;
+    z-index: 100;
+    padding: 8px 0 0;
+    box-sizing: border-box;
+}
+#log_wrapper {
+    position: absolute;
+    top: 400px;
+    left: 65px;
+    height: 200px;
+}
+.terminal {
+    --color: #95a9d5;
+    --background: #232e45;
+}
+.terminal-output > div {
+    padding-top: 0;
+}
+div.terminal-output div div, .cmd {
+    margin-top: -3px;
+}
+.cmd {
+    height: 1em;
+}
+
+@keyframes blink {
+    0% { opacity: 1; }
+    25% { opacity: 0; }
+    50% { opacity: 0; }
+    100% { opacity: 1; }
+}
+@-webkit-keyframes blink {
+    0% { opacity: 1; }
+    25% { opacity: 0; }
+    50% { opacity: 0; }
+    100% { opacity: 1; }
+}
+@-ms-keyframes blink {
+    0% { opacity: 1; }
+    25% { opacity: 0; }
+    50% { opacity: 0; }
+    100% { opacity: 1; }
+}
+@-moz-keyframes blink {
+    0% { opacity: 1; }
+    25% { opacity: 0; }
+    50% { opacity: 0; }
+    100% { opacity: 1; }
+}
+.cmd .cursor.blink {
+    background: #95a9d5;
+    -webkit-animation: blink 1s infinite linear;
+       -moz-animation: blink 1s infinite linear;
+        -ms-animation: blink 1s infinite linear;
+            animation: blink 1s linear infinite;
+    -webkit-box-shadow: 0 0 5px rgba(0,149,169,213);
+       -moz-box-shadow: 0 0 5px rgba(0,149,169,213);
+        -ms-box-shadow: 0 0 5px rgba(0,149,169,213);
+         -o-box-shadow: 0 0 5px rgba(0,149,169,213);
+            box-shadow: 0 0 5px rgba(0,149,169,213);
+}
+    </style>
+    <script src="https://code.jquery.com/jquery-3.1.1.min.js"></script>
+    <script src="jquery.terminal-1.1.0.mod.js"></script>
+    <script>
+
+'use strict'
+
+const bleAdcBaseUUID        = '4c0d1100-f92e-95a6-c743-2fcb7f0ba8a0';
+const bleAdcServiceRXUUID     = '4c0d1101-f92e-95a6-c743-2fcb7f0ba8a0';
+const bleAdcServiceTXUUID     = '4c0d1101-f92e-95a6-c743-2fcb7f0ba8a0';
+
+const MTU = 20;
+
+var term;
+var bleDevice;
+var bleServer;
+var nusService;
+var rxCharacteristic;
+var txCharacteristic;
+var gattServer;
+var notification;
+var accept;
+
+$(function() {
+    notification = false;
+    accept = false;
+    term = $('#term').terminal(function() {
+    }, {
+        prompt: '',
+        greetings: 'NRF52 WebBluetooth REPL\n\n' +
+                   'Connect to the board using the button above.\n',
+        keypress: function(e, term) {
+            if (e.which != 13) {
+            term.insert(String.fromCharCode(e.which));
+            }
+            return false;
+        },
+        onBeforeCommand: function(e, command) {
+            if (notification === false) {
+            	sendString(command);
+            }
+
+            if (accept === true) {
+                return true;
+            }
+
+            return notification;
+        },
+        width:  600,
+        height: 300
+    });
+
+$('#connect').on('click', connect);
+$('#disconnect').on('click', disconnect);
+$('#get-msg').on('click', get_msg);
+
+function get_msg(){
+    log('> Notifications started');
+    sendString("0")
+    return txCharacteristic.addEventListener('characteristicvaluechanged',
+                                          handleNotifications);
+}
+
+function get_wrap_pos(text) {
+    let r = text.indexOf('\r');
+    let n = text.indexOf('\n');
+    let max = r;
+    if (n > r) {
+        max = n;
+    } 
+    return max;
+}
+
+function inject_text(text) {
+    notification = true;
+
+    let last_line_wrap = get_wrap_pos(text);
+    if (last_line_wrap > 0) {
+        let prmt = term.get_prompt();
+        text = prmt + text;
+        term.set_prompt("");
+
+        do {
+            let next_line_pos = get_wrap_pos(text);
+            term.exec(text.slice(0, next_line_pos));
+            text = text.slice(next_line_pos + 1);
+        } while (get_wrap_pos(text) > 0);
+
+        term.set_prompt(text);
+        
+    } else {
+        let prmt = term.get_prompt();
+        term.set_prompt(prmt + text);
+    }
+
+    notification = false;
+}
+
+function sendString(s) {
+    log("send" + s);
+    let val_arr = new Uint8Array(s.length + 1)
+    for (let i = 0; i < s.length; i++) {
+        let val = s[i].charCodeAt(0);
+        val_arr[i] = val;
+    }
+    val_arr[s.length] = 13;
+    sendNextChunk(val_arr);
+}
+
+function sendNextChunk(a) {
+  let chunk = a.slice(0, MTU);
+  rxCharacteristic.writeValue(chunk)
+    .then(function() {
+      if (a.length > MTU) {
+        sendNextChunk(a.slice(MTU));
+      }
+    });
+}
+
+function handleError(error) {
+    log(error);
+    gattServer = null;
+    nusService = null;
+    rxCharacteristic = null;  
+    txCharacteristic = null;
+    dialog.open();
+}
+
+let options = {
+    filters: [{namePrefix: "MOURA-"}],
+    optionalServices: [bleAdcBaseUUID]
+}
+
+function connect() {
+    if (!navigator.bluetooth) {
+        log('> WebBluetooth API is not available.\n' +
+            '> Please make sure the Web Bluetooth flag is enabled.');
+        return;
+    }
+    log('> Requesting Bluetooth Device...');
+    navigator.bluetooth.requestDevice(options)
+    .then(device => {
+        bleDevice = device; 
+        log('> Found ' + device.name);
+        log('> Connecting to GATT Server...');
+        return device.gatt.connect();
+    })
+    .then(server => {
+        log('> Locate NUS service');
+        return server.getPrimaryService([bleAdcBaseUUID]);
+    }).then(service => {
+        nusService = service;
+        log('> Found NUS service');
+    })
+    .then(() => {
+        log('> Locate RX characteristic');
+        return nusService.getCharacteristic([bleAdcServiceRXUUID]);
+    })
+    .then(characteristic => {
+        rxCharacteristic = characteristic;
+        log('> Found RX characteristic');
+    })
+    .then(() => {
+        log('> Locate TX characteristic');
+        return nusService.getCharacteristic([bleAdcServiceTXUUID]);
+    })
+    .then(characteristic => {
+        txCharacteristic = characteristic;
+        log('> Found TX characteristic');
+    })
+    .then(() => {
+        log('> Enable notifications');
+        return txCharacteristic.startNotifications();
+    })
+    .then(() => {
+        log('> Notifications started');
+        sendString("0")
+        txCharacteristic.addEventListener('characteristicvaluechanged',
+                                          handleNotifications);
+    })
+    .catch(error => {
+        log('> ERROR: ' + error);
+    });
+}
+
+function handleNotifications(event) {
+    log('> notification');
+    let value = event.target.value;
+
+    // Convert raw data bytes to hexadecimal values and construct a string.
+    let result = "";
+    for (let i = 0; i < value.byteLength; i++) {
+        var number = value.getUint8(i);
+        // Convert the number to hexadecimal and pad with leading zero if needed
+        result += ("0" + number.toString(16)).slice(-2);
+    }
+
+    /*pega 8 caracteres da tensao*/
+    let hexString = result.substring(0, 9);
+    let byteArray = Array.from({length: hexString.length / 2}, (_, i) => parseInt(hexString.substring(i * 2, i * 2 + 2), 16));
+    let arr = new Uint8Array(byteArray)
+    let dataView = new DataView(arr.buffer);
+    let tensaoPrincipal = dataView.getFloat32(0,true);
+    console.log("Tensão = " + tensaoPrincipal);
+
+    
+    /*pega 8 caracteres da corrente*/
+    hexString = result.substring(8,17)
+    byteArray = Array.from({length: hexString.length / 2}, (_, i) => parseInt(hexString.substring(i * 2, i * 2 + 2), 16));
+    arr = new Uint8Array(byteArray)
+    dataView = new DataView(arr.buffer);
+    let current = dataView.getFloat32(0,true);
+    console.log("Corrente = " + current);
+
+    /** Consumo médio */
+    hexString = result.substring(16, 25)
+    byteArray = Array.from({length: hexString.length / 2}, (_, i) => parseInt(hexString.substring(i * 2, i * 2 + 2), 16));
+    arr = new Uint8Array(byteArray)
+    dataView = new DataView(arr.buffer);
+    let consume = dataView.getFloat32(0,true)
+    console.log("Consume = " + consume);
+
+
+    /** Temperatura Interna */
+    hexString = result.substring(24, 33)
+    byteArray = Array.from({length: hexString.length / 2}, (_, i) => parseInt(hexString.substring(i * 2, i * 2 + 2), 16));
+    arr = new Uint8Array(byteArray)
+    dataView = new DataView(arr.buffer);
+    let temperature = dataView.getFloat32(0,true)
+    console.log("Temperature = " + temperature);
+    
+
+    hexString = result.substring(32, 41)
+    byteArray = Array.from({length: hexString.length / 2}, (_, i) => parseInt(hexString.substring(i * 2, i * 2 + 2), 16));
+    arr = new Uint8Array(byteArray)
+    dataView = new DataView(arr.buffer);
+    let soh = dataView.getFloat32(0,true);
+    console.log("SoH = " + soh);
+  
+
+    hexString = result.substring(40, 49)
+    byteArray = Array.from({length: hexString.length / 2}, (_, i) => parseInt(hexString.substring(i * 2, i * 2 + 2), 16));
+    arr = new Uint8Array(byteArray)
+    dataView = new DataView(arr.buffer);
+    let soc = dataView.getFloat32(0,true);
+    console.log("SoC = " + soc);
+
+    //id empilhadeira tira 2 carac da string 48 e 49
+
+    hexString = result.substring(50,52)
+    let eletrolyte = parseInt(hexString, 16)
+    console.log("Eletrolito = " + eletrolyte);
+
+    hexString = result.substring(52,54)
+    let batState = parseInt(hexString, 16)
+    console.log("Estado = " + batState);
+
+    result += '\n';
+    inject_text(result);
+
+}
+
+function disconnect() {
+    if (!bleDevice) {
+        log('No Bluetooth Device connected...');
+        return;
+    }
+    log('> Disconnecting from Bluetooth Device...');
+    if (bleDevice.gatt.connected) {
+        bleDevice.gatt.disconnect();
+        log('> Bluetooth Device connected: ' + bleDevice.gatt.connected);
+    } else {
+        log('> Bluetooth Device is already disconnected');
+    }
+}
+
+function log(text) {
+    console.log(text);
+    $('#log').append(text + '\n');
+}
+
+});
+    </script>
+</head>
+<body>
+    <div id="buttons">
+        <button id="connect" type="button" class="btn btn-default">CONNECT</button>
+        <button id="disconnect" type="button" class="btn btn-default">DISCONNECT</button>
+        <button id="get-msg" type="button" class="btn btn-default">GET MESSAGE</button>
+    </div>
+    <div id="term"></div>
+    <div id="log_wrapper">    
+        <pre>Bluetooth log:</pre>
+        <textarea cols="72" rows="10" id="log"></textarea>
+    </div>
+</body>
+</html>
+

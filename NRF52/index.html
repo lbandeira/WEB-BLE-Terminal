@@ -1,385 +1,374 @@
 <!DOCTYPE HTML>
-<html xmlns="http://www.w3.org/1999/xhtml">
+<html lang="en">
 <head>
-    <meta charset="utf-8" />
-    <title>NRF52 WebBluetooth REPL</title>
-    <meta name="Description" content=""/>
-    <link rel="shortcut icon" href=""/>
-    <!--[if IE]>
-    <script src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
-    <![endif]-->
-    <link href="jquery.terminal-src.css" rel="stylesheet"/>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Moura Connect</title>
     <style>
-body {
-    background-color: #CCCCCC;
-}
-#buttons {
-    position: absolute;
-    top: 30px;
-    left: 65px;
-    z-index: 100;
-    padding: 8px 0 0;
-    box-sizing: border-box;
-}
-#term {
-    position: absolute;
-    top: 80px;
-    left: 65px;
-    z-index: 100;
-    padding: 8px 0 0;
-    box-sizing: border-box;
-}
-#log_wrapper {
-    position: absolute;
-    top: 400px;
-    left: 65px;
-    height: 200px;
-}
-.terminal {
-    --color: #95a9d5;
-    --background: #232e45;
-}
-.terminal-output > div {
-    padding-top: 0;
-}
-div.terminal-output div div, .cmd {
-    margin-top: -3px;
-}
-.cmd {
-    height: 1em;
-}
-
-@keyframes blink {
-    0% { opacity: 1; }
-    25% { opacity: 0; }
-    50% { opacity: 0; }
-    100% { opacity: 1; }
-}
-@-webkit-keyframes blink {
-    0% { opacity: 1; }
-    25% { opacity: 0; }
-    50% { opacity: 0; }
-    100% { opacity: 1; }
-}
-@-ms-keyframes blink {
-    0% { opacity: 1; }
-    25% { opacity: 0; }
-    50% { opacity: 0; }
-    100% { opacity: 1; }
-}
-@-moz-keyframes blink {
-    0% { opacity: 1; }
-    25% { opacity: 0; }
-    50% { opacity: 0; }
-    100% { opacity: 1; }
-}
-.cmd .cursor.blink {
-    background: #95a9d5;
-    -webkit-animation: blink 1s infinite linear;
-       -moz-animation: blink 1s infinite linear;
-        -ms-animation: blink 1s infinite linear;
-            animation: blink 1s linear infinite;
-    -webkit-box-shadow: 0 0 5px rgba(0,149,169,213);
-       -moz-box-shadow: 0 0 5px rgba(0,149,169,213);
-        -ms-box-shadow: 0 0 5px rgba(0,149,169,213);
-         -o-box-shadow: 0 0 5px rgba(0,149,169,213);
-            box-shadow: 0 0 5px rgba(0,149,169,213);
-}
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f9;
+            color: #333;
+        }
+        .container {
+            max-width: 90%;
+            margin: 20px auto;
+            padding: 20px;
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            display: flex;
+            flex-wrap: wrap;
+        }
+        .dashboard, .terminal {
+            flex: 1;
+            min-width: 300px;
+            margin: 10px;
+        }
+        h1 {
+            text-align: center;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            padding: 12px;
+            text-align: center;
+            border: 1px solid #ddd;
+        }
+        th {
+            background-color: #007BFF;
+            color: #fff;
+        }
+        button {
+            display: block;
+            margin: 20px auto;
+            padding: 10px 20px;
+            font-size: 16px;
+            color: #fff;
+            background-color: #007BFF;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        #chart-container {
+            width: 100%;
+            height: 400px;
+        }
+        #terminal {
+            background-color: #000;
+            color: rgb(255, 251, 0);
+            padding: 10px;
+            border-radius: 8px;
+            height: 400px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
     </style>
-    <script src="https://code.jquery.com/jquery-3.1.1.min.js"></script>
-    <script src="jquery.terminal-1.1.0.mod.js"></script>
-    <script>
-
-'use strict'
-
-const bleAdcBaseUUID        = '4c0d1100-f92e-95a6-c743-2fcb7f0ba8a0';
-const bleAdcServiceRXUUID     = '4c0d1101-f92e-95a6-c743-2fcb7f0ba8a0';
-const bleAdcServiceTXUUID     = '4c0d1101-f92e-95a6-c743-2fcb7f0ba8a0';
-
-const MTU = 20;
-
-var term;
-var bleDevice;
-var bleServer;
-var nusService;
-var rxCharacteristic;
-var txCharacteristic;
-var gattServer;
-var notification;
-var accept;
-
-$(function() {
-    notification = false;
-    accept = false;
-    term = $('#term').terminal(function() {
-    }, {
-        prompt: '',
-        greetings: 'NRF52 WebBluetooth REPL\n\n' +
-                   'Connect to the board using the button above.\n',
-        keypress: function(e, term) {
-            if (e.which != 13) {
-            term.insert(String.fromCharCode(e.which));
-            }
-            return false;
-        },
-        onBeforeCommand: function(e, command) {
-            if (notification === false) {
-            	sendString(command);
-            }
-
-            if (accept === true) {
-                return true;
-            }
-
-            return notification;
-        },
-        width:  600,
-        height: 300
-    });
-
-$('#connect').on('click', connect);
-$('#disconnect').on('click', disconnect);
-$('#get-msg').on('click', get_msg);
-
-function get_msg(){
-    log('> Notifications started');
-    sendString("0")
-    return txCharacteristic.addEventListener('characteristicvaluechanged',
-                                          handleNotifications);
-}
-
-function get_wrap_pos(text) {
-    let r = text.indexOf('\r');
-    let n = text.indexOf('\n');
-    let max = r;
-    if (n > r) {
-        max = n;
-    } 
-    return max;
-}
-
-function inject_text(text) {
-    notification = true;
-
-    let last_line_wrap = get_wrap_pos(text);
-    if (last_line_wrap > 0) {
-        let prmt = term.get_prompt();
-        text = prmt + text;
-        term.set_prompt("");
-
-        do {
-            let next_line_pos = get_wrap_pos(text);
-            term.exec(text.slice(0, next_line_pos));
-            text = text.slice(next_line_pos + 1);
-        } while (get_wrap_pos(text) > 0);
-
-        term.set_prompt(text);
-        
-    } else {
-        let prmt = term.get_prompt();
-        term.set_prompt(prmt + text);
-    }
-
-    notification = false;
-}
-
-function sendString(s) {
-    log("send" + s);
-    let val_arr = new Uint8Array(s.length + 1)
-    for (let i = 0; i < s.length; i++) {
-        let val = s[i].charCodeAt(0);
-        val_arr[i] = val;
-    }
-    val_arr[s.length] = 13;
-    sendNextChunk(val_arr);
-}
-
-function sendNextChunk(a) {
-  let chunk = a.slice(0, MTU);
-  rxCharacteristic.writeValue(chunk)
-    .then(function() {
-      if (a.length > MTU) {
-        sendNextChunk(a.slice(MTU));
-      }
-    });
-}
-
-function handleError(error) {
-    log(error);
-    gattServer = null;
-    nusService = null;
-    rxCharacteristic = null;  
-    txCharacteristic = null;
-    dialog.open();
-}
-
-let options = {
-    filters: [{namePrefix: "MOURA-"}],
-    optionalServices: [bleAdcBaseUUID]
-}
-
-function connect() {
-    if (!navigator.bluetooth) {
-        log('> WebBluetooth API is not available.\n' +
-            '> Please make sure the Web Bluetooth flag is enabled.');
-        return;
-    }
-    log('> Requesting Bluetooth Device...');
-    navigator.bluetooth.requestDevice(options)
-    .then(device => {
-        bleDevice = device; 
-        log('> Found ' + device.name);
-        log('> Connecting to GATT Server...');
-        return device.gatt.connect();
-    })
-    .then(server => {
-        log('> Locate NUS service');
-        return server.getPrimaryService([bleAdcBaseUUID]);
-    }).then(service => {
-        nusService = service;
-        log('> Found NUS service');
-    })
-    .then(() => {
-        log('> Locate RX characteristic');
-        return nusService.getCharacteristic([bleAdcServiceRXUUID]);
-    })
-    .then(characteristic => {
-        rxCharacteristic = characteristic;
-        log('> Found RX characteristic');
-    })
-    .then(() => {
-        log('> Locate TX characteristic');
-        return nusService.getCharacteristic([bleAdcServiceTXUUID]);
-    })
-    .then(characteristic => {
-        txCharacteristic = characteristic;
-        log('> Found TX characteristic');
-    })
-    .then(() => {
-        log('> Enable notifications');
-        return txCharacteristic.startNotifications();
-    })
-    .then(() => {
-        log('> Notifications started');
-        sendString("0")
-        txCharacteristic.addEventListener('characteristicvaluechanged',
-                                          handleNotifications);
-    })
-    .catch(error => {
-        log('> ERROR: ' + error);
-    });
-}
-
-function handleNotifications(event) {
-    log('> notification');
-    let value = event.target.value;
-
-    // Convert raw data bytes to hexadecimal values and construct a string.
-    let result = "";
-    for (let i = 0; i < value.byteLength; i++) {
-        var number = value.getUint8(i);
-        // Convert the number to hexadecimal and pad with leading zero if needed
-        result += ("0" + number.toString(16)).slice(-2);
-    }
-
-    /*pega 8 caracteres da tensao*/
-    let hexString = result.substring(0, 9);
-    let byteArray = Array.from({length: hexString.length / 2}, (_, i) => parseInt(hexString.substring(i * 2, i * 2 + 2), 16));
-    let arr = new Uint8Array(byteArray)
-    let dataView = new DataView(arr.buffer);
-    let tensaoPrincipal = dataView.getFloat32(0,true);
-    console.log("Tensão = " + tensaoPrincipal);
-
-    
-    /*pega 8 caracteres da corrente*/
-    hexString = result.substring(8,17)
-    byteArray = Array.from({length: hexString.length / 2}, (_, i) => parseInt(hexString.substring(i * 2, i * 2 + 2), 16));
-    arr = new Uint8Array(byteArray)
-    dataView = new DataView(arr.buffer);
-    let current = dataView.getFloat32(0,true);
-    console.log("Corrente = " + current);
-
-    /** Consumo médio */
-    hexString = result.substring(16, 25)
-    byteArray = Array.from({length: hexString.length / 2}, (_, i) => parseInt(hexString.substring(i * 2, i * 2 + 2), 16));
-    arr = new Uint8Array(byteArray)
-    dataView = new DataView(arr.buffer);
-    let consume = dataView.getFloat32(0,true)
-    console.log("Consume = " + consume);
-
-
-    /** Temperatura Interna */
-    hexString = result.substring(24, 33)
-    byteArray = Array.from({length: hexString.length / 2}, (_, i) => parseInt(hexString.substring(i * 2, i * 2 + 2), 16));
-    arr = new Uint8Array(byteArray)
-    dataView = new DataView(arr.buffer);
-    let temperature = dataView.getFloat32(0,true)
-    console.log("Temperature = " + temperature);
-    
-
-    hexString = result.substring(32, 41)
-    byteArray = Array.from({length: hexString.length / 2}, (_, i) => parseInt(hexString.substring(i * 2, i * 2 + 2), 16));
-    arr = new Uint8Array(byteArray)
-    dataView = new DataView(arr.buffer);
-    let soh = dataView.getFloat32(0,true);
-    console.log("SoH = " + soh);
-  
-
-    hexString = result.substring(40, 49)
-    byteArray = Array.from({length: hexString.length / 2}, (_, i) => parseInt(hexString.substring(i * 2, i * 2 + 2), 16));
-    arr = new Uint8Array(byteArray)
-    dataView = new DataView(arr.buffer);
-    let soc = dataView.getFloat32(0,true);
-    console.log("SoC = " + soc);
-
-    //id empilhadeira tira 2 carac da string 48 e 49
-
-    hexString = result.substring(50,52)
-    let eletrolyte = parseInt(hexString, 16)
-    console.log("Eletrolito = " + eletrolyte);
-
-    hexString = result.substring(52,54)
-    let batState = parseInt(hexString, 16)
-    console.log("Estado = " + batState);
-
-    result += '\n';
-    inject_text(result);
-
-}
-
-function disconnect() {
-    if (!bleDevice) {
-        log('No Bluetooth Device connected...');
-        return;
-    }
-    log('> Disconnecting from Bluetooth Device...');
-    if (bleDevice.gatt.connected) {
-        bleDevice.gatt.disconnect();
-        log('> Bluetooth Device connected: ' + bleDevice.gatt.connected);
-    } else {
-        log('> Bluetooth Device is already disconnected');
-    }
-}
-
-function log(text) {
-    console.log(text);
-    $('#log').append(text + '\n');
-}
-
-});
-    </script>
 </head>
 <body>
-    <div id="buttons">
-        <button id="connect" type="button" class="btn btn-default">CONNECT</button>
-        <button id="disconnect" type="button" class="btn btn-default">DISCONNECT</button>
-        <button id="get-msg" type="button" class="btn btn-default">GET MESSAGE</button>
+    <div class="container">
+        <div class="dashboard">
+            <h1>Dashboard de Dados Primarios da Bateria</h1>
+            <div style="display: flex; justify-content: space-around;">
+                <button id="connect-bluetooth">Conectar Bluetooth</button>
+                <button id="disconnect-bluetooth" disabled>Desconectar Bluetooth</button>
+                <button id="save-csv">Salvar em CSV</button>
+            </div>
+            <div id="chart-container">
+                <canvas id="chart"></canvas>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Tempo</th>
+                        <th>Tensão (V)</th>
+                        <th>Corrente (A)</th>
+                        <th>Temperatura (°C)</th>
+                    </tr>
+                </thead>
+                <tbody id="data-table">
+                </tbody>
+            </table>
+        </div>
+        <div class="terminal">
+            <h1 id="terminal-header">Terminal</h1>
+            <div id="terminal"></div>
+        </div>
     </div>
-    <div id="term"></div>
-    <div id="log_wrapper">    
-        <pre>Bluetooth log:</pre>
-        <textarea cols="72" rows="10" id="log"></textarea>
-    </div>
+
+    <!-- Importando Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        // Variáveis globais
+        const dataTable = document.getElementById("data-table");
+        const connectButton = document.getElementById("connect-bluetooth");
+        const disconnectButton = document.getElementById("disconnect-bluetooth");
+        const csvButton = document.getElementById("save-csv");
+        const chartCtx = document.getElementById("chart").getContext("2d");
+        const terminal = document.getElementById("terminal");
+        const terminalHeader = document.getElementById("terminal-header");
+        let dataPoints = [];
+        let chart;
+
+        let bluetoothDevice = null;
+        let bleAdcService = null;
+        let bleAdcCharacteristic = null;
+        const bleAdcBaseUUID = '4c0d1100-f92e-95a6-c743-2fcb7f0ba8a0';
+        const bleAdcServiceRXUUID = '4c0d1101-f92e-95a6-c743-2fcb7f0ba8a0';
+        const bleAdcServiceTXUUID = '4c0d1101-f92e-95a6-c743-2fcb7f0ba8a0';
+        const MTU = 20;
+
+        // Função para adicionar uma nova linha na tabela e atualizar o gráfico
+        function addData(tempo, tensao, corrente, temperatura) {
+            const row = document.createElement("tr");
+            row.innerHTML = `
+                <td>${tempo}</td>
+                <td>${tensao.toFixed(2)}</td>
+                <td>${corrente.toFixed(2)}</td>
+                <td>${temperatura.toFixed(2)}</td>
+            `;
+            dataTable.appendChild(row);
+
+            dataPoints.push({ tempo, tensao, corrente, temperatura });
+            if (dataPoints.length > 10) dataPoints.shift();
+
+            updateChart();
+
+            terminal.innerText += `Tempo: ${tempo}, Tensão: ${tensao.toFixed(2)}V, Corrente: ${corrente.toFixed(2)}A, Temperatura: ${temperatura.toFixed(2)}°C\n`;
+            terminal.scrollTop = terminal.scrollHeight;
+        }
+
+        function createChart() {
+            chart = new Chart(chartCtx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        { label: 'Tensão (V)', data: [], borderColor: 'rgba(75, 192, 192, 1)', backgroundColor: 'rgba(75, 192, 192, 0.2)', borderWidth: 2, fill: true },
+                        { label: 'Corrente (A)', data: [], borderColor: 'rgba(255, 99, 132, 1)', backgroundColor: 'rgba(255, 99, 132, 0.2)', borderWidth: 2, fill: true },
+                        { label: 'Temperatura (°C)', data: [], borderColor: 'rgba(54, 162, 235, 1)', backgroundColor: 'rgba(54, 162, 235, 0.2)', borderWidth: 2, fill: true }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        x: { title: { display: true, text: 'Tempo' } },
+                        y: { title: { display: true, text: 'Valores' } }
+                    }
+                }
+            });
+        }
+
+        function updateChart() {
+            chart.data.labels = dataPoints.map((_, index) => `T${index + 1}`);
+            chart.data.datasets[0].data = dataPoints.map(dp => dp.tensao);
+            chart.data.datasets[1].data = dataPoints.map(dp => dp.corrente);
+            chart.data.datasets[2].data = dataPoints.map(dp => dp.temperatura);
+            chart.update();
+        }
+        function sendString(s) {
+            terminal.innerText += "> send" + s;
+            let val_arr = new Uint8Array(s.length + 1)
+            for (let i = 0; i < s.length; i++) {
+                let val = s[i].charCodeAt(0);
+                val_arr[i] = val;
+            }
+            val_arr[s.length] = 13;
+            sendNextChunk(val_arr);
+        }
+        function sendNextChunk(a) {
+            let chunk = a.slice(0, MTU);
+            rxCharacteristic.writeValue(chunk)
+                .then(function() {
+                if (a.length > MTU) {
+                    sendNextChunk(a.slice(MTU));
+                }
+                });
+        }
+        
+        async function connectBluetooth() {
+            if (!navigator.bluetooth) {
+                terminal.innerText += '> WebBluetooth API não está disponível.\n' +
+                    '> Certifique-se de que a flag do Web Bluetooth está habilitada.\n';
+                return;
+            }
+            terminal.innerText += '> Solicitando Dispositivo Bluetooth...\n';
+
+            try {
+                const device = await navigator.bluetooth.requestDevice({
+                    filters: [{ namePrefix: "MOURA-" }],
+                    optionalServices: [bleAdcBaseUUID]
+                });
+
+                bleDevice = device;
+                terminal.innerText += `> Dispositivo encontrado: ${device.name}\n`;
+                terminalHeader.innerText = `Terminal - ${device.name}`;
+                terminal.innerText += '> Conectando ao Servidor GATT...\n';
+
+                const server = await device.gatt.connect();
+
+                terminal.innerText += '> Localizando serviço NUS...\n';
+                const service = await server.getPrimaryService(bleAdcBaseUUID);
+
+                nusService = service;
+                terminal.innerText += '> Serviço NUS encontrado\n';
+
+                terminal.innerText += '> Localizando característica RX...\n';
+                const rxChar = await nusService.getCharacteristic(bleAdcServiceRXUUID);
+                rxCharacteristic = rxChar;
+                terminal.innerText += '> Característica RX encontrada\n';
+
+                terminal.innerText += '> Localizando característica TX...\n';
+                const txChar = await nusService.getCharacteristic(bleAdcServiceTXUUID);
+                txCharacteristic = txChar;
+                terminal.innerText += '> Característica TX encontrada\n';
+
+                terminal.innerText += '> Habilitando notificações...\n';
+                await txCharacteristic.startNotifications();
+                txCharacteristic.addEventListener('characteristicvaluechanged', handleNotifications);
+
+                terminal.innerText += '> Notificações habilitadas\n';
+                sendString("0"); // Envia "0" para inicializar comunicação
+                disconnectButton.disabled = false;
+                connectButton.disabled = true;
+            } catch (error) {
+                terminal.innerText += `> ERRO: ${error.message}\n`;
+            }
+        }
+
+        async function disconnectBluetooth() {
+            if (!bleDevice) {
+                terminal.innerText += 'No Bluetooth Device connected...';
+                return;
+            }
+            terminal.innerText += '> Disconnecting from Bluetooth Device...';
+            if (bleDevice.gatt.connected) {
+                bleDevice.gatt.disconnect();
+                terminal.innerText += '> Bluetooth Device connected: ' + bleDevice.gatt.connected;
+            } else {
+                terminal.innerText += '> Bluetooth Device is already disconnected';
+            }
+        }
+
+        function handleNotifications(event) {
+            terminal.innerText +=  "> Notification received";
+            const rawValue = event.target.value;
+
+            // Convert raw data bytes to hexadecimal string
+            let result = "";
+            for (let i = 0; i < rawValue.byteLength; i++) {
+                const byte = rawValue.getUint8(i);
+                result += byte.toString(16).padStart(2, '0'); // Pad with leading zero if needed
+            }
+
+            /*pega 8 caracteres da tensao*/
+            let hexString = result.substring(0, 9);
+            let byteArray = Array.from({length: hexString.length / 2}, (_, i) => parseInt(hexString.substring(i * 2, i * 2 + 2), 16));
+            let arr = new Uint8Array(byteArray);
+            let dataView = new DataView(arr.buffer);
+            let tensaoPrincipal = dataView.getFloat32(0, true);
+
+            /*pega 8 caracteres da corrente*/
+            hexString = result.substring(8, 17);
+            byteArray = Array.from({length: hexString.length / 2}, (_, i) => parseInt(hexString.substring(i * 2, i * 2 + 2), 16));
+            arr = new Uint8Array(byteArray);
+            dataView = new DataView(arr.buffer);
+            let corrente = dataView.getFloat32(0, true);
+
+            /** Temperatura Interna */
+            hexString = result.substring(16, 25);
+            byteArray = Array.from({length: hexString.length / 2}, (_, i) => parseInt(hexString.substring(i * 2, i * 2 + 2), 16));
+            arr = new Uint8Array(byteArray);
+            dataView = new DataView(arr.buffer);
+            let temperaturaInterna = dataView.getFloat32(0, true);
+
+            /** Temperatura Externa */
+            hexString = result.substring(24, 33);
+            byteArray = Array.from({length: hexString.length / 2}, (_, i) => parseInt(hexString.substring(i * 2, i * 2 + 2), 16));
+            arr = new Uint8Array(byteArray);
+            dataView = new DataView(arr.buffer);
+            let temperaturaExterna = dataView.getFloat32(0, true);
+            console.log("Temperatura Externa = " + temperaturaExterna);
+
+            /**SoH */
+            hexString = result.substring(32, 41);
+            byteArray = Array.from({length: hexString.length / 2}, (_, i) => parseInt(hexString.substring(i * 2, i * 2 + 2), 16));
+            arr = new Uint8Array(byteArray);
+            dataView = new DataView(arr.buffer);
+            let soh = dataView.getFloat32(0, true);
+            console.log("SoH = " + soh);
+
+            /**SoC */
+            hexString = result.substring(40, 49);
+            byteArray = Array.from({length: hexString.length / 2}, (_, i) => parseInt(hexString.substring(i * 2, i * 2 + 2), 16));
+            arr = new Uint8Array(byteArray);
+            dataView = new DataView(arr.buffer);
+            let soc = dataView.getFloat32(0, true);
+            console.log("SoC = " + soc);
+
+            //id empilhadeira tira 2 carac da string 48 e 49
+            hexString = result.substring(48, 50);
+            let eletrolito = parseInt(hexString, 16);
+            console.log("Eletrolito = " + eletrolito);
+
+            hexString = result.substring(50, 52);
+            let estadoBateria = parseInt(hexString, 16);
+            console.log("Estado da Bateria = " + estadoBateria);
+
+            // Log Raw Data
+            terminal.innerText += `Raw: ${Array.from(new Uint8Array(rawValue.buffer))
+                .map(byte => byte.toString(16).padStart(2, '0'))
+                .join('')}\n`;
+
+            // Atualiza os gráficos ou interface com os valores extraídos
+            const tempoAtual = new Date().toLocaleTimeString();
+            addData(tempoAtual, tensaoPrincipal, corrente, temperaturaInterna);
+        }
+
+        // Função auxiliar para converter string hexadecimal em float
+        function parseHexToFloat(hexString) {
+            const byteArray = Array.from(
+                { length: hexString.length / 2 },
+                (_, i) => parseInt(hexString.substring(i * 2, i * 2 + 2), 16)
+            );
+            const dataView = new DataView(new Uint8Array(byteArray).buffer);
+            return dataView.getFloat32(0, true); // Little-endian
+        }
+
+        function saveCSV() {
+            const rows = [];
+            const headers = ["Tempo", "Tensão (V)", "Corrente (A)", "Temperatura (C)"];
+            rows.push(headers);
+
+            const dataRows = Array.from(dataTable.querySelectorAll("tr")).slice(1);
+            dataRows.forEach(row => {
+            const cells = Array.from(row.querySelectorAll("td")).map(td => td.innerText);
+            rows.push(cells);
+            });
+
+            const csvContent = rows.map(e => e.join(",")).join("\n");
+            const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            const deviceName = bleDevice ? bleDevice.name.replace(/\s+/g, '_') : 'dados';
+            a.href = url;
+            a.download = `${deviceName}_dados.csv`;
+            a.click();
+        }
+
+        connectButton.addEventListener("click", connectBluetooth);
+        disconnectButton.addEventListener("click", disconnectBluetooth);
+        csvButton.addEventListener("click", saveCSV);
+
+        createChart();
+    </script>
 </body>
 </html>
-
